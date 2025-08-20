@@ -7,7 +7,8 @@ It integrates **speech recognition, NLP, SQL automation, and visualization** int
 ---
 
 ## 📸 Screenshots  
-(Add screenshots or GIFs here to showcase the app UI and visualizations)  
+<img width="1532" height="1008" alt="Screenshot 2025-08-20 223325" src="https://github.com/user-attachments/assets/cd45831b-0550-41e9-bcb8-3cb3649e2756" />
+
 
 ---
 
