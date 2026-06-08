@@ -17,7 +17,9 @@ import {
   BarChart2,
   LineChart,
   PieChart,
-  Table as TableIcon
+  Table as TableIcon,
+  MoreVertical,
+  Trash2
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -48,6 +50,20 @@ export const Dashboard: React.FC = () => {
   const [schema, setSchema] = useState<any[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
 
+  // Custom Confirmation & Menu Action States
+  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: (() => void) | null;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
+
   // Suggested Prompts
   const suggestions = [
     "Show total sales by product category",
@@ -69,6 +85,56 @@ export const Dashboard: React.FC = () => {
     fetchHistory();
     fetchSchema();
   }, []);
+
+  // Document click listener to close history 3-dots dropdown menu
+  useEffect(() => {
+    const handleOutsideClick = () => setActiveMenuId(null);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  const closeConfirmModal = () => {
+    setConfirmModal({
+      isOpen: false,
+      title: '',
+      message: '',
+      onConfirm: null
+    });
+  };
+
+  const handleClearHistory = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Clear Analytics History',
+      message: 'Are you sure you want to permanently clear all query history? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await api.clearHistory();
+          setHistory([]); // locally clear history
+        } catch (err: any) {
+          console.error(err);
+        }
+        closeConfirmModal();
+      }
+    });
+  };
+
+  const handleDeleteHistoryItem = (id: number) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete History Entry',
+      message: 'Are you sure you want to remove this query log from your history?',
+      onConfirm: async () => {
+        try {
+          await api.deleteHistoryItem(id);
+          fetchHistory();
+        } catch (err: any) {
+          console.error(err);
+        }
+        closeConfirmModal();
+      }
+    });
+  };
 
   const fetchHistory = async () => {
     try {
@@ -386,9 +452,20 @@ export const Dashboard: React.FC = () => {
 
           {/* History Tracker */}
           <div className="glass-panel" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-              <History size={18} style={{ color: 'var(--text-secondary)' }} /> Analytics History Log
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <History size={18} style={{ color: 'var(--text-secondary)' }} /> Analytics History Log
+              </h3>
+              {history.length > 0 && (
+                <button 
+                  className="btn-secondary" 
+                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', color: 'var(--accent-rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+                  onClick={handleClearHistory}
+                >
+                  Clear History
+                </button>
+              )}
+            </div>
             
             <div className="history-list">
               {history.length === 0 ? (
@@ -398,20 +475,51 @@ export const Dashboard: React.FC = () => {
                   <div 
                     key={item.id} 
                     className="glass-card history-item"
-                    onClick={() => handleSelectHistory(item)}
                   >
-                    <div className="history-item-header">
-                      <strong style={{ color: 'var(--text-primary)' }}>"{item.prompt}"</strong>
-                      <span className={`badge ${item.status}`}>
-                        {item.status}
+                    <div 
+                      className="history-item-content" 
+                      onClick={() => handleSelectHistory(item)}
+                    >
+                      <div className="history-item-header">
+                        <strong style={{ color: 'var(--text-primary)' }}>"{item.prompt}"</strong>
+                        <span className={`badge ${item.status}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <code style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {item.generated_sql || '-- SQL Generation failed'}
+                      </code>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {new Date(item.created_at).toLocaleString()}
                       </span>
                     </div>
-                    <code style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                      {item.generated_sql || '-- SQL Generation failed'}
-                    </code>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      {new Date(item.created_at).toLocaleString()}
-                    </span>
+
+                    <div className="history-item-actions">
+                      <button 
+                        className="history-menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenuId(activeMenuId === item.id ? null : item.id);
+                        }}
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      
+                      {activeMenuId === item.id && (
+                        <div className="history-menu-dropdown">
+                          <button 
+                            className="history-menu-item"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuId(null);
+                              handleDeleteHistoryItem(item.id);
+                            }}
+                          >
+                            <Trash2 size={12} /> Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -420,6 +528,28 @@ export const Dashboard: React.FC = () => {
 
         </section>
       </main>
+
+      {/* Custom Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <div className="confirm-modal-overlay">
+          <div className="confirm-modal-box glass-panel" style={{ background: '#0f172a', border: '1px solid var(--border-glass-active)' }}>
+            <h3 style={{ marginBottom: '0.5rem' }}>{confirmModal.title}</h3>
+            <p style={{ marginBottom: '1.5rem' }}>{confirmModal.message}</p>
+            <div className="confirm-modal-actions">
+              <button className="btn-secondary" onClick={closeConfirmModal} style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem' }}>
+                Cancel
+              </button>
+              <button 
+                className="btn-primary" 
+                onClick={confirmModal.onConfirm || (() => {})} 
+                style={{ padding: '0.5rem 1.25rem', background: 'var(--accent-rose)', border: 'none', fontSize: '0.9rem' }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

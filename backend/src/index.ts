@@ -32,6 +32,8 @@ app.get('/api/auth/me', authenticateToken as any, AuthController.getMe as any);
 // Voice-to-SQL Analytics Routes
 app.post('/api/query/process', authenticateToken as any, QueryController.processQuery as any);
 app.get('/api/query/history', authenticateToken as any, QueryController.getHistory as any);
+app.delete('/api/query/history', authenticateToken as any, QueryController.clearHistory as any);
+app.delete('/api/query/history/:id', authenticateToken as any, QueryController.deleteHistoryItem as any);
 app.get('/api/query/schema', authenticateToken as any, QueryController.getSchema as any);
 
 // Global Error Handler

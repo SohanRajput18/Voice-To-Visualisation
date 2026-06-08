@@ -219,8 +219,12 @@ body {
   align-items: center;
   padding: 1rem 2rem;
   border-bottom: 1px solid var(--border-glass);
-  background: rgba(8, 12, 20, 0.4);
-  backdrop-filter: blur(8px);
+  background: rgba(8, 12, 20, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .logo-section {
@@ -341,7 +345,7 @@ body {
 }
 
 .chart-panel {
-  min-height: 400px;
+  min-height: 480px;
   padding: 2rem;
   display: flex;
   flex-direction: column;
@@ -360,7 +364,7 @@ body {
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: 350px;
+  min-height: 320px;
 }
 
 /* Table Style */
@@ -442,18 +446,29 @@ body {
 
 .history-item {
   display: flex;
+  flex-direction: row;
+  align-items: center; /* Center horizontally/vertically relative to actions */
+  gap: 1rem;
+  justify-content: space-between;
+  transition: var(--transition);
+  width: 100%;
+  overflow: visible; /* to show absolute dropdowns */
+  padding-right: 0.75rem;
+}
+
+.history-item-content {
+  flex: 1;
+  display: flex;
   flex-direction: column;
   gap: 0.25rem;
   cursor: pointer;
-  transition: var(--transition);
-  width: 100%;
-  overflow: hidden;
+  min-width: 0; /* lets text wrap */
 }
 
 .history-item-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center; /* Vertically centered header */
   font-size: 0.875rem;
   gap: 1rem;
   width: 100%;
@@ -464,6 +479,112 @@ body {
   overflow-wrap: break-word;
   flex: 1;
   min-width: 0;
+}
+
+.history-item-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.history-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.history-menu-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.history-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 50;
+  min-width: 130px;
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  background: #0f172a;
+  box-shadow: var(--glass-shadow);
+  border: 1px solid var(--border-glass-active);
+}
+
+.history-menu-item {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: var(--transition);
+}
+
+.history-menu-item:hover {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--accent-rose);
+}
+
+/* Custom Modal Popups */
+.confirm-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(8, 12, 20, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.confirm-modal-box {
+  max-width: 400px;
+  width: 90%;
+  padding: 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+}
+
+.confirm-modal-box h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confirm-modal-box p {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
 }
 
 .badge {

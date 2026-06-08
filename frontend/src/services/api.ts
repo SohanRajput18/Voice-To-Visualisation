@@ -70,6 +70,26 @@ export const api = {
     return data.history;
   },
 
+  async clearHistory() {
+    const response = await fetch(`${API_URL}/api/query/history`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to clear history');
+    return data;
+  },
+
+  async deleteHistoryItem(id: number) {
+    const response = await fetch(`${API_URL}/api/query/history/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to delete history item');
+    return data;
+  },
+
   async getSchema() {
     const response = await fetch(`${API_URL}/api/query/schema`, {
       headers: getHeaders()

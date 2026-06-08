@@ -63,7 +63,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
     return renderTable(data, keys);
   }
 
-  // Formatting dates and converting string numeric values to numbers
+  // 2. Formatting dates and converting string numeric values to numbers
   const formattedData = data.map(item => {
     const newItem = { ...item };
 
@@ -85,6 +85,27 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
     return newItem;
   });
 
+  // 3. For Pie Chart: group categories into "Other" if there are too many categories (e.g. > 6)
+  // to prevent overlapping labels and legend clutter.
+  let chartData = formattedData;
+  if (chartType === 'pie' && formattedData.length > 6) {
+    const valKey = yAxisKeys[0];
+    const sorted = [...formattedData].sort((a, b) => Number(b[valKey] || 0) - Number(a[valKey] || 0));
+    const top5 = sorted.slice(0, 5);
+    const remaining = sorted.slice(5);
+    const otherSum = remaining.reduce((sum, item) => sum + Number(item[valKey] || 0), 0);
+    
+    if (otherSum > 0) {
+      chartData = [
+        ...top5,
+        {
+          [xAxisKey]: 'Other',
+          [valKey]: otherSum
+        }
+      ];
+    }
+  }
+
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -98,7 +119,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
         }}>
           <p style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{`${xAxisKey}: ${label}`}</p>
           {payload.map((pld: any, index: number) => (
-            <p key={index} style={{ color: pld.color || pld.fill, fontSize: '0.9rem' }}>
+            <p style={{ color: pld.color || pld.fill, fontSize: '0.9rem' }} key={index}>
               {`${pld.name}: ${Number(pld.value).toLocaleString()}`}
             </p>
           ))}
@@ -111,7 +132,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
   return (
     <ResponsiveContainer width="100%" height="100%">
       {chartType === 'line' ? (
-        <LineChart data={formattedData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
           <defs>
             <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="var(--accent-cyan)" />
@@ -146,19 +167,19 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
           ))}
         </LineChart>
       ) : chartType === 'pie' ? (
-        <PieChart>
+        <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
           <Pie
-            data={formattedData}
+            data={chartData}
             cx="50%"
             cy="50%"
             labelLine={false}
             label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-            outerRadius={100}
+            outerRadius={80}
             fill="#8884d8"
             dataKey={yAxisKeys[0]}
             nameKey={xAxisKey}
           >
-            {formattedData.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
@@ -167,7 +188,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ data, columns, cha
         </PieChart>
       ) : (
         // Default: Bar Chart
-        <BarChart data={formattedData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+        <BarChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
           <XAxis 
             dataKey={xAxisKey} 

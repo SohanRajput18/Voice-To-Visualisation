@@ -142,6 +142,51 @@ export class QueryController {
   }
 
   /**
+   * Clears all query history for the logged in user.
+   */
+  static async clearHistory(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    try {
+      await pool.query('DELETE FROM query_history WHERE user_id = $1', [userId]);
+      return res.status(200).json({ message: 'Query history cleared successfully' });
+    } catch (error: any) {
+      console.error('Error clearing history:', error);
+      return res.status(500).json({ error: 'Failed to clear query history' });
+    }
+  }
+
+  /**
+   * Deletes a single history item for the logged in user.
+   */
+  static async deleteHistoryItem(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user?.id;
+    const { id } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    try {
+      const result = await pool.query(
+        'DELETE FROM query_history WHERE id = $1 AND user_id = $2',
+        [id, userId]
+      );
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'History item not found' });
+      }
+      return res.status(200).json({ message: 'History item deleted successfully' });
+    } catch (error: any) {
+      console.error('Error deleting history item:', error);
+      return res.status(500).json({ error: 'Failed to delete history item' });
+    }
+  }
+
+  /**
    * Exposes database schema metadata to the frontend.
    */
   static async getSchema(req: AuthenticatedRequest, res: Response) {
