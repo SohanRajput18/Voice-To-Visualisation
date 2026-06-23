@@ -7,6 +7,9 @@ import { ConnectionController } from './connection.controller';
 import { RagSchemaService } from '../services/rag-schema.service';
 import { DbAdapterFactory, DiscoveredTable } from '../services/db-adapter';
 
+// In-memory guest query histories registry
+const guestHistories = new Map<string, any[]>();
+
 export class QueryController {
   /**
    * Processes natural language query using RAG Context and active Database Adapters.
@@ -14,6 +17,7 @@ export class QueryController {
   static async processQuery(req: AuthenticatedRequest, res: Response) {
     const { prompt } = req.body;
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt query is required' });
@@ -23,7 +27,7 @@ export class QueryController {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    let activeConn = await ConnectionController.getActiveAdapter(userId);
+    let activeConn = await ConnectionController.getActiveAdapter(userId, guestSessionId);
     let adapter = activeConn?.adapter;
     let connectionId = activeConn?.connectionId || null;
 
@@ -59,7 +63,7 @@ export class QueryController {
       if (!validation.isValid) {
         const latency = Date.now() - startTime;
         await QueryController.logAudit(
-          userId, connectionId, prompt, generatedSql, 'invalid', latency, 'table', explanation, confidence, validation.error
+          userId, connectionId, prompt, generatedSql, 'invalid', latency, 'table', explanation, confidence, validation.error, guestSessionId
         );
 
         return res.status(400).json({
@@ -88,7 +92,7 @@ export class QueryController {
 
       // 7. Audit log success
       await QueryController.logAudit(
-        userId, connectionId, prompt, sqlToRun, 'success', latency, chartType, explanation, confidence
+        userId, connectionId, prompt, sqlToRun, 'success', latency, chartType, explanation, confidence, null, guestSessionId
       );
 
       // Clean up connection pool if using transient fallback adapter
@@ -115,7 +119,7 @@ export class QueryController {
       console.error('Error executing generated SQL:', error);
 
       await QueryController.logAudit(
-        userId, connectionId, prompt, generatedSql || 'Failed during generation', 'failed', latency, 'table', explanation, confidence, errorMsg
+        userId, connectionId, prompt, generatedSql || 'Failed during generation', 'failed', latency, 'table', explanation, confidence, errorMsg, guestSessionId
       );
 
       // Clean up fallback pool
@@ -137,9 +141,15 @@ export class QueryController {
    */
   static async getHistory(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    if (guestSessionId) {
+      const history = guestHistories.get(guestSessionId) || [];
+      return res.status(200).json({ history });
     }
 
     try {
@@ -162,7 +172,13 @@ export class QueryController {
    */
   static async clearHistory(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     if (!userId) return res.status(401).json({ error: 'Not authorized' });
+
+    if (guestSessionId) {
+      guestHistories.set(guestSessionId, []);
+      return res.status(200).json({ message: 'History cleared' });
+    }
 
     try {
       await pool.query('DELETE FROM query_history WHERE user_id = $1', [userId]);
@@ -178,8 +194,16 @@ export class QueryController {
    */
   static async deleteHistoryItem(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     const { id } = req.params;
     if (!userId) return res.status(401).json({ error: 'Not authorized' });
+
+    if (guestSessionId) {
+      let history = guestHistories.get(guestSessionId) || [];
+      history = history.filter(item => item.id !== Number(id));
+      guestHistories.set(guestSessionId, history);
+      return res.status(200).json({ message: 'Item deleted' });
+    }
 
     try {
       await pool.query('DELETE FROM query_history WHERE id = $1 AND user_id = $2', [id, userId]);
@@ -194,9 +218,10 @@ export class QueryController {
    */
   static async getSchema(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     if (!userId) return res.status(401).json({ error: 'Not authorized' });
 
-    let activeConn = await ConnectionController.getActiveAdapter(userId);
+    let activeConn = await ConnectionController.getActiveAdapter(userId, guestSessionId);
     let adapter = activeConn?.adapter;
 
     if (!adapter) {
@@ -221,9 +246,24 @@ export class QueryController {
    */
   static async getAnalytics(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    if (guestSessionId) {
+      return res.status(200).json({
+        summary: {
+          totalQueries: 0,
+          successCount: 0,
+          invalidCount: 0,
+          failedCount: 0,
+          avgLatencyMs: 0
+        },
+        chartDistribution: [],
+        logs: []
+      });
     }
 
     try {
@@ -278,7 +318,7 @@ export class QueryController {
   }
 
   /**
-   * Helper logger mapping audit writes to database.
+   * Helper logger mapping audit writes to database or guest in-memory logs.
    */
   private static async logAudit(
     userId: number,
@@ -290,9 +330,29 @@ export class QueryController {
     chartType: string,
     explanation: string | null = null,
     confidence: number = 0.0,
-    errorMsg: string | null = null
+    errorMsg: string | null = null,
+    guestSessionId?: string
   ) {
     try {
+      if (guestSessionId) {
+        // Save to guest in-memory logs
+        const history = guestHistories.get(guestSessionId) || [];
+        const mockId = Math.floor(Math.random() * 1000000) + 1;
+        const mockItem = {
+          id: mockId,
+          prompt,
+          generated_sql: sql,
+          status,
+          error_message: errorMsg,
+          chart_type: chartType,
+          created_at: new Date().toISOString(),
+          explanation,
+          confidence
+        };
+        guestHistories.set(guestSessionId, [mockItem, ...history].slice(0, 20));
+        return;
+      }
+
       // Save history log (legacy compatibility)
       await pool.query(
         `INSERT INTO query_history (user_id, prompt, generated_sql, status, error_message, chart_type) 

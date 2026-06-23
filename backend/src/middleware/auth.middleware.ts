@@ -9,6 +9,7 @@ export interface AuthenticatedRequest extends Request {
     id: number;
     username: string;
     email: string;
+    guestSessionId?: string;
   };
 }
 

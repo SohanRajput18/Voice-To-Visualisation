@@ -4,6 +4,9 @@ import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { DbAdapterFactory } from '../services/db-adapter';
 import { encrypt, decrypt } from '../utils/db-encryption';
 
+// In-memory guest connections registry
+const guestConnections = new Map<string, any[]>();
+
 export class ConnectionController {
   /**
    * Tests a database connection configuration before saving.
@@ -36,6 +39,7 @@ export class ConnectionController {
    */
   static async saveConnection(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     const { name, engine, config, is_active } = req.body;
 
     if (!userId) {
@@ -59,7 +63,40 @@ export class ConnectionController {
       // 2. Encrypt connection data
       const encryptedData = encrypt(JSON.stringify(config));
 
-      // 3. Save to DB
+      // Guest flow
+      if (guestSessionId) {
+        let userConns = guestConnections.get(guestSessionId) || [];
+        
+        // If active, deactivate others
+        if (is_active) {
+          userConns = userConns.map(c => ({ ...c, is_active: false }));
+        }
+
+        const connId = Math.floor(Math.random() * 1000000) + 1;
+        const newConn = {
+          id: connId,
+          name,
+          engine,
+          connection_data: encryptedData,
+          is_active: !!is_active,
+          created_at: new Date().toISOString()
+        };
+
+        guestConnections.set(guestSessionId, [...userConns, newConn]);
+
+        return res.status(201).json({
+          message: 'Database connection saved successfully',
+          connection: {
+            id: newConn.id,
+            name: newConn.name,
+            engine: newConn.engine,
+            is_active: newConn.is_active,
+            created_at: newConn.created_at
+          }
+        });
+      }
+
+      // 3. Save to DB (regular user)
       const result = await pool.query(
         `INSERT INTO db_connections (user_id, name, engine, connection_data, is_active) 
          VALUES ($1, $2, $3, $4, $5) RETURNING id, name, engine, is_active, created_at`,
@@ -93,21 +130,29 @@ export class ConnectionController {
    */
   static async listConnections(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
     try {
-      const { rows } = await pool.query(
-        `SELECT id, name, engine, connection_data, is_active, created_at 
-         FROM db_connections 
-         WHERE user_id = $1 
-         ORDER BY created_at DESC`,
-        [userId]
-      );
+      let conns: any[] = [];
 
-      const parsedRows = rows.map(r => {
+      if (guestSessionId) {
+        conns = guestConnections.get(guestSessionId) || [];
+      } else {
+        const { rows } = await pool.query(
+          `SELECT id, name, engine, connection_data, is_active, created_at 
+           FROM db_connections 
+           WHERE user_id = $1 
+           ORDER BY created_at DESC`,
+          [userId]
+        );
+        conns = rows;
+      }
+
+      const parsedRows = conns.map(r => {
         let host = 'localhost';
         let database = '';
         try {
@@ -142,6 +187,7 @@ export class ConnectionController {
    */
   static async activateConnection(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     const { id } = req.params;
 
     if (!userId) {
@@ -149,6 +195,23 @@ export class ConnectionController {
     }
 
     try {
+      if (guestSessionId) {
+        let userConns = guestConnections.get(guestSessionId) || [];
+        const connExists = userConns.some(c => c.id === Number(id));
+        
+        if (!connExists) {
+          return res.status(404).json({ error: 'Connection profile not found' });
+        }
+
+        userConns = userConns.map(c => ({
+          ...c,
+          is_active: c.id === Number(id)
+        }));
+
+        guestConnections.set(guestSessionId, userConns);
+        return res.status(200).json({ message: 'Database connection activated' });
+      }
+
       const checkResult = await pool.query(
         'SELECT id FROM db_connections WHERE id = $1 AND user_id = $2',
         [id, userId]
@@ -175,6 +238,7 @@ export class ConnectionController {
    */
   static async deleteConnection(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
+    const guestSessionId = req.user?.guestSessionId;
     const { id } = req.params;
 
     if (!userId) {
@@ -182,6 +246,23 @@ export class ConnectionController {
     }
 
     try {
+      if (guestSessionId) {
+        let userConns = guestConnections.get(guestSessionId) || [];
+        const targetConn = userConns.find(c => c.id === Number(id));
+
+        if (!targetConn) {
+          return res.status(404).json({ error: 'Connection profile not found' });
+        }
+
+        userConns = userConns.filter(c => c.id !== Number(id));
+        if (targetConn.is_active && userConns.length > 0) {
+          userConns[0].is_active = true;
+        }
+
+        guestConnections.set(guestSessionId, userConns);
+        return res.status(200).json({ message: 'Database connection deleted' });
+      }
+
       const result = await pool.query(
         'DELETE FROM db_connections WHERE id = $1 AND user_id = $2 RETURNING is_active',
         [id, userId]
@@ -210,7 +291,22 @@ export class ConnectionController {
   /**
    * Internal helper to retrieve user's active database adapter.
    */
-  static async getActiveAdapter(userId: number): Promise<{ adapter: any; connectionId: number } | null> {
+  static async getActiveAdapter(userId: number, guestSessionId?: string): Promise<{ adapter: any; connectionId: number } | null> {
+    if (guestSessionId) {
+      const userConns = guestConnections.get(guestSessionId) || [];
+      const activeConn = userConns.find(c => c.is_active === true);
+      
+      if (!activeConn) return null;
+
+      const decryptedConfig = JSON.parse(decrypt(activeConn.connection_data));
+      const adapter = DbAdapterFactory.create(activeConn.engine, decryptedConfig);
+      
+      return {
+        adapter,
+        connectionId: activeConn.id
+      };
+    }
+
     const { rows } = await pool.query(
       `SELECT id, engine, connection_data FROM db_connections 
        WHERE user_id = $1 AND is_active = true LIMIT 1`,

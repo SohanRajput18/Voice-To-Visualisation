@@ -115,6 +115,56 @@ export class AuthController {
   }
 
   /**
+   * Authenticates a guest user with an isolated in-memory session.
+   */
+  static async guestLogin(req: AuthenticatedRequest, res: Response) {
+    try {
+      // 1. Find or create the generic 'guest' user record in the DB
+      let guestUser;
+      const result = await pool.query(
+        'SELECT id, username, email FROM users WHERE username = $1',
+        ['guest']
+      );
+
+      if (result.rows.length === 0) {
+        // Insert generic guest user
+        const createResult = await pool.query(
+          `INSERT INTO users (username, email, password_hash) 
+           VALUES ($1, $2, $3) 
+           RETURNING id, username, email`,
+          ['guest', 'guest@voxquery.local', 'guest_placeholder_hash']
+        );
+        guestUser = createResult.rows[0];
+      } else {
+        guestUser = result.rows[0];
+      }
+
+      // 2. Generate a unique session identifier for this specific guest session
+      const guestSessionId = 'gs_' + Math.random().toString(36).substring(2, 11);
+
+      // 3. Generate JWT with the guestSessionId in the payload
+      const token = jwt.sign(
+        { id: guestUser.id, username: guestUser.username, email: guestUser.email, guestSessionId },
+        JWT_SECRET,
+        { expiresIn: TOKEN_EXPIRY }
+      );
+
+      return res.status(200).json({
+        message: 'Guest login successful',
+        token,
+        user: {
+          id: guestUser.id,
+          username: guestUser.username,
+          email: guestUser.email
+        }
+      });
+    } catch (error) {
+      console.error('Guest login error:', error);
+      return res.status(500).json({ error: 'An error occurred during guest login' });
+    }
+  }
+
+  /**
    * Returns current user details based on verification token.
    */
   static async getMe(req: AuthenticatedRequest, res: Response) {

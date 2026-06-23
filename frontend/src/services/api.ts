@@ -41,6 +41,16 @@ export const api = {
     return data.user;
   },
 
+  async guestLogin() {
+    const response = await fetch(`${API_URL}/api/auth/guest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Guest login failed');
+    return data;
+  },
+
   // Query Management
   async processQuery(prompt: string) {
     const response = await fetch(`${API_URL}/api/query/process`, {

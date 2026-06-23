@@ -12,6 +12,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
+  guestLogin: () => Promise<void>;
   logout: () => void;
 }
 
@@ -60,13 +61,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const guestLogin = async () => {
+    setLoading(true);
+    try {
+      const data = await api.guestLogin();
+      localStorage.setItem('vtov_token', data.token);
+      setUser(data.user);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('vtov_token');
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, guestLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

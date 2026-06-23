@@ -28,6 +28,7 @@ app.get('/api/health', (req, res) => {
 // Authentication Routes
 app.post('/api/auth/register', AuthController.register);
 app.post('/api/auth/login', AuthController.login);
+app.post('/api/auth/guest', AuthController.guestLogin);
 app.get('/api/auth/me', authenticateToken as any, AuthController.getMe as any);
 
 // Voice-to-SQL Analytics Routes

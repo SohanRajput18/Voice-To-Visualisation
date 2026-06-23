@@ -10,7 +10,7 @@ export const AuthScreen: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const { login, register } = useAuth();
+  const { login, register, guestLogin } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +28,18 @@ export const AuthScreen: React.FC = () => {
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'An error occurred during authentication');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setErrorMsg(null);
+    setSubmitting(true);
+    try {
+      await guestLogin();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An error occurred during guest login');
     } finally {
       setSubmitting(false);
     }
@@ -141,6 +153,28 @@ export const AuthScreen: React.FC = () => {
               </>
             )}
           </button>
+
+          {isLogin && (
+            <button
+              type="button"
+              className="btn-secondary guest-btn"
+              onClick={handleGuestLogin}
+              disabled={submitting}
+              style={{
+                marginTop: '1rem',
+                width: '100%',
+                borderColor: 'var(--accent-cyan)',
+                color: 'var(--accent-cyan)',
+                background: 'rgba(6, 182, 212, 0.05)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
+            >
+              Explore as Guest
+            </button>
+          )}
         </form>
 
         <p style={{ marginTop: '1.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
