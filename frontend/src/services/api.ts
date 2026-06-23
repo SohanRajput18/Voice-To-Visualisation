@@ -50,11 +50,12 @@ export const api = {
     });
     const data = await response.json();
     if (!response.ok) {
-      // Return details even if failed so frontend can show validation errors/SQL preview
       return {
         hasError: true,
         error: data.error || 'Failed to run query',
         sql: data.sql,
+        explanation: data.explanation,
+        confidence: data.confidence,
         status: data.status
       };
     }
@@ -97,5 +98,66 @@ export const api = {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Failed to fetch schema');
     return data.schema;
+  },
+
+  async getAnalytics() {
+    const response = await fetch(`${API_URL}/api/query/analytics`, {
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch analytics');
+    return data;
+  },
+
+  // Database Connection Manager Mappings
+  async testConnection(engine: string, config: any) {
+    const response = await fetch(`${API_URL}/api/connection/test`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ engine, config })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Connection test failed');
+    return data;
+  },
+
+  async saveConnection(name: string, engine: string, config: any, isActive: boolean) {
+    const response = await fetch(`${API_URL}/api/connection/save`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name, engine, config, is_active: isActive })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to save connection profile');
+    return data;
+  },
+
+  async listConnections() {
+    const response = await fetch(`${API_URL}/api/connection/list`, {
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch connection profiles');
+    return data.connections;
+  },
+
+  async activateConnection(id: number) {
+    const response = await fetch(`${API_URL}/api/connection/activate/${id}`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to activate connection');
+    return data;
+  },
+
+  async deleteConnection(id: number) {
+    const response = await fetch(`${API_URL}/api/connection/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to delete connection');
+    return data;
   }
 };

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { AuthController } from './controllers/auth.controller';
 import { QueryController } from './controllers/query.controller';
+import { ConnectionController } from './controllers/connection.controller';
 import { authenticateToken } from './middleware/auth.middleware';
 
 dotenv.config();
@@ -35,6 +36,14 @@ app.get('/api/query/history', authenticateToken as any, QueryController.getHisto
 app.delete('/api/query/history', authenticateToken as any, QueryController.clearHistory as any);
 app.delete('/api/query/history/:id', authenticateToken as any, QueryController.deleteHistoryItem as any);
 app.get('/api/query/schema', authenticateToken as any, QueryController.getSchema as any);
+app.get('/api/query/analytics', authenticateToken as any, QueryController.getAnalytics as any);
+
+// Database Connections Profiles Management Routes
+app.post('/api/connection/test', authenticateToken as any, ConnectionController.testConnection as any);
+app.post('/api/connection/save', authenticateToken as any, ConnectionController.saveConnection as any);
+app.get('/api/connection/list', authenticateToken as any, ConnectionController.listConnections as any);
+app.post('/api/connection/activate/:id', authenticateToken as any, ConnectionController.activateConnection as any);
+app.delete('/api/connection/:id', authenticateToken as any, ConnectionController.deleteConnection as any);
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

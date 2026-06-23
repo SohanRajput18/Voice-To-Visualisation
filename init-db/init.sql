@@ -112,3 +112,31 @@ INSERT INTO sales (product_id, customer_id, quantity, sale_date, total_amount) V
 (8, 9, 2, '2026-06-03', 259.98),
 (10, 1, 2, '2026-06-05', 99.98),
 (7, 10, 5, '2026-06-06', 174.95);
+
+-- Create User DB Connections configuration table
+CREATE TABLE IF NOT EXISTS db_connections (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    engine VARCHAR(20) NOT NULL, -- 'postgres', 'mysql', 'sqlite'
+    connection_data TEXT NOT NULL, -- AES-256-GCM encrypted JSON parameters
+    is_active BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create Query Audit Logs table for Enterprise Analytics
+CREATE TABLE IF NOT EXISTS query_audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    connection_id INT REFERENCES db_connections(id) ON DELETE SET NULL,
+    prompt TEXT NOT NULL,
+    generated_sql TEXT,
+    status VARCHAR(20) NOT NULL, -- 'success', 'failed', 'invalid'
+    execution_time_ms INT,
+    chart_type VARCHAR(20),
+    explanation TEXT,
+    confidence DECIMAL(3, 2),
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+

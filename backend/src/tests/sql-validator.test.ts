@@ -1,10 +1,45 @@
 import { SqlValidator } from '../utils/sql-validator';
+import { DiscoveredTable } from '../services/db-adapter';
 
 interface TestCase {
   name: string;
   sql: string;
   expectedValid: boolean;
 }
+
+const mockSchema: DiscoveredTable[] = [
+  {
+    name: 'sales',
+    columns: [
+      { name: 'id', dataType: 'integer', isPrimaryKey: true, isForeignKey: false },
+      { name: 'product_id', dataType: 'integer', isPrimaryKey: false, isForeignKey: true, referencedTable: 'products', referencedColumn: 'id' },
+      { name: 'customer_id', dataType: 'integer', isPrimaryKey: false, isForeignKey: true, referencedTable: 'customers', referencedColumn: 'id' },
+      { name: 'quantity', dataType: 'integer', isPrimaryKey: false, isForeignKey: false },
+      { name: 'sale_date', dataType: 'date', isPrimaryKey: false, isForeignKey: false },
+      { name: 'total_amount', dataType: 'numeric', isPrimaryKey: false, isForeignKey: false }
+    ]
+  },
+  {
+    name: 'products',
+    columns: [
+      { name: 'id', dataType: 'integer', isPrimaryKey: true, isForeignKey: false },
+      { name: 'name', dataType: 'varchar', isPrimaryKey: false, isForeignKey: false },
+      { name: 'category', dataType: 'varchar', isPrimaryKey: false, isForeignKey: false },
+      { name: 'price', dataType: 'numeric', isPrimaryKey: false, isForeignKey: false },
+      { name: 'stock', dataType: 'integer', isPrimaryKey: false, isForeignKey: false }
+    ]
+  },
+  {
+    name: 'customers',
+    columns: [
+      { name: 'id', dataType: 'integer', isPrimaryKey: true, isForeignKey: false },
+      { name: 'name', dataType: 'varchar', isPrimaryKey: false, isForeignKey: false },
+      { name: 'email', dataType: 'varchar', isPrimaryKey: false, isForeignKey: false },
+      { name: 'city', dataType: 'varchar', isPrimaryKey: false, isForeignKey: false },
+      { name: 'join_date', dataType: 'date', isPrimaryKey: false, isForeignKey: false }
+    ]
+  }
+];
 
 const testCases: TestCase[] = [
   {
@@ -59,7 +94,7 @@ function runTests() {
   let passedCount = 0;
 
   for (const tc of testCases) {
-    const res = SqlValidator.validate(tc.sql);
+    const res = SqlValidator.validate(tc.sql, mockSchema);
     const passed = res.isValid === tc.expectedValid;
     
     if (passed) {

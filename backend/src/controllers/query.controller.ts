@@ -3,12 +3,13 @@ import { pool } from '../config/db';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { LlmService } from '../services/llm.service';
 import { SqlValidator } from '../utils/sql-validator';
-import { DbSchemaService } from '../services/db-schema.service';
+import { ConnectionController } from './connection.controller';
+import { RagSchemaService } from '../services/rag-schema.service';
+import { DbAdapterFactory, DiscoveredTable } from '../services/db-adapter';
 
 export class QueryController {
   /**
-   * Processes a voice or text natural language query.
-   * Steps: LLM Text-to-SQL -> Safe Validation -> Execute -> Recommend Chart -> Save History.
+   * Processes natural language query using RAG Context and active Database Adapters.
    */
   static async processQuery(req: AuthenticatedRequest, res: Response) {
     const { prompt } = req.body;
@@ -22,93 +23,109 @@ export class QueryController {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    let generatedSql = '';
-    
-    try {
-      // 1. Run LLM translation
-      generatedSql = await LlmService.translateToSql(prompt);
+    let activeConn = await ConnectionController.getActiveAdapter(userId);
+    let adapter = activeConn?.adapter;
+    let connectionId = activeConn?.connectionId || null;
 
-      // 2. Run SQL safety validation
-      const validation = SqlValidator.validate(generatedSql);
+    // Fallback: If no custom database is active, use the seeded sandbox postgres database
+    if (!adapter) {
+      const databaseUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/vtov_db';
+      adapter = DbAdapterFactory.create('postgres', { connectionString: databaseUrl });
+    }
+
+    let fullSchema: DiscoveredTable[] = [];
+    let relevantSchema: DiscoveredTable[] = [];
+    let generatedSql = '';
+    let explanation = '';
+    let confidence = 0.0;
+    const startTime = Date.now();
+
+    try {
+      // 1. Discover full schema dynamically
+      fullSchema = await adapter.discoverSchema();
+
+      // 2. Retrieve relevant schema context using RAG
+      relevantSchema = await RagSchemaService.getRelevantSchema(prompt, fullSchema);
+
+      // 3. Compile SQL query, explanation, and confidence
+      const llmResult = await LlmService.translateToSql(prompt, relevantSchema);
+      generatedSql = llmResult.sql;
+      explanation = llmResult.explanation;
+      confidence = llmResult.confidence;
+
+      // 4. Validate generated SQL against discovered schema
+      const validation = SqlValidator.validate(generatedSql, fullSchema);
 
       if (!validation.isValid) {
-        // Save query history as invalid
-        await pool.query(
-          `INSERT INTO query_history (user_id, prompt, generated_sql, status, error_message, chart_type) 
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, prompt, generatedSql, 'invalid', validation.error, 'table']
+        const latency = Date.now() - startTime;
+        await QueryController.logAudit(
+          userId, connectionId, prompt, generatedSql, 'invalid', latency, 'table', explanation, confidence, validation.error
         );
 
         return res.status(400).json({
           error: validation.error,
           sql: generatedSql,
+          explanation,
+          confidence,
           status: 'invalid'
         });
       }
 
       const sqlToRun = validation.cleanedSql!;
 
-      // 3. Execute query on PostgreSQL
-      const queryResult = await pool.query(sqlToRun);
+      // 5. Execute query on the active database adapter
+      const queryResult = await adapter.executeReadOnly(sqlToRun);
       const rows = queryResult.rows;
-      const fields = queryResult.fields || [];
-
-      const columns = fields.map(f => ({
+      
+      const columns = (queryResult.fields || []).map((f: any) => ({
         name: f.name,
-        dataType: f.dataTypeID // Can map to type names or keep simple
+        dataType: f.dataTypeID || 'unknown'
       }));
 
-      // 4. Determine chart recommendations
+      // 6. smart recommend chart
       const chartType = QueryController.recommendChart(columns, rows);
+      const latency = Date.now() - startTime;
 
-      // 5. Store successful history record
-      await pool.query(
-        `INSERT INTO query_history (user_id, prompt, generated_sql, status, chart_type) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, prompt, sqlToRun, 'success', chartType]
+      // 7. Audit log success
+      await QueryController.logAudit(
+        userId, connectionId, prompt, sqlToRun, 'success', latency, chartType, explanation, confidence
       );
+
+      // Clean up connection pool if using transient fallback adapter
+      if (!activeConn) {
+        await adapter.disconnect();
+      }
 
       return res.status(200).json({
         sql: sqlToRun,
         columns,
         rows,
         chartType,
+        explanation,
+        confidence,
         status: 'success'
       });
 
     } catch (error: any) {
-      if (error.message && error.message.startsWith('TRANSLATION_ERROR:')) {
-        const cleanMsg = error.message.replace('TRANSLATION_ERROR:', '');
-        console.warn(`Translation blocked: ${cleanMsg}`);
-        
-        if (userId) {
-          await pool.query(
-            `INSERT INTO query_history (user_id, prompt, generated_sql, status, error_message, chart_type) 
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [userId, prompt, null, 'invalid', cleanMsg, 'table']
-          );
-        }
-
-        return res.status(400).json({
-          error: cleanMsg,
-          sql: '',
-          status: 'invalid'
-        });
-      }
+      const latency = Date.now() - startTime;
+      const errorMsg = error.message && error.message.startsWith('TRANSLATION_ERROR:') 
+        ? error.message.replace('TRANSLATION_ERROR:', '') 
+        : error.message;
 
       console.error('Error executing generated SQL:', error);
 
-      // Store failed query history record
-      if (userId) {
-        await pool.query(
-          `INSERT INTO query_history (user_id, prompt, generated_sql, status, error_message, chart_type) 
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, prompt, generatedSql || 'Failed during generation', 'failed', error.message, 'table']
-        );
+      await QueryController.logAudit(
+        userId, connectionId, prompt, generatedSql || 'Failed during generation', 'failed', latency, 'table', explanation, confidence, errorMsg
+      );
+
+      // Clean up fallback pool
+      if (!activeConn && adapter) {
+        try { await adapter.disconnect(); } catch (_) {}
       }
 
-      return res.status(500).json({
-        error: `Database execution error: ${error.message}`,
+      const isUserFriendly = error.message && error.message.startsWith('TRANSLATION_ERROR:');
+      return res.status(isUserFriendly ? 400 : 500).json({
+        error: isUserFriendly ? errorMsg : `Query execution failure: ${errorMsg}`,
         sql: generatedSql,
         status: 'failed'
       });
@@ -136,65 +153,162 @@ export class QueryController {
       );
       return res.status(200).json({ history: rows });
     } catch (error: any) {
-      console.error('Error fetching query history:', error);
       return res.status(500).json({ error: 'Failed to fetch query history' });
     }
   }
 
   /**
-   * Clears all query history for the logged in user.
+   * Clears query history logs.
    */
   static async clearHistory(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
+    if (!userId) return res.status(401).json({ error: 'Not authorized' });
 
     try {
       await pool.query('DELETE FROM query_history WHERE user_id = $1', [userId]);
-      return res.status(200).json({ message: 'Query history cleared successfully' });
-    } catch (error: any) {
-      console.error('Error clearing history:', error);
-      return res.status(500).json({ error: 'Failed to clear query history' });
+      await pool.query('DELETE FROM query_audit_logs WHERE user_id = $1', [userId]);
+      return res.status(200).json({ message: 'History cleared' });
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to clear history' });
     }
   }
 
   /**
-   * Deletes a single history item for the logged in user.
+   * Deletes a specific history item.
    */
   static async deleteHistoryItem(req: AuthenticatedRequest, res: Response) {
     const userId = req.user?.id;
     const { id } = req.params;
+    if (!userId) return res.status(401).json({ error: 'Not authorized' });
+
+    try {
+      await pool.query('DELETE FROM query_history WHERE id = $1 AND user_id = $2', [id, userId]);
+      return res.status(200).json({ message: 'Item deleted' });
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to delete item' });
+    }
+  }
+
+  /**
+   * Exposes active discovered database schema metadata.
+   */
+  static async getSchema(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Not authorized' });
+
+    let activeConn = await ConnectionController.getActiveAdapter(userId);
+    let adapter = activeConn?.adapter;
+
+    if (!adapter) {
+      const databaseUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/vtov_db';
+      adapter = DbAdapterFactory.create('postgres', { connectionString: databaseUrl });
+    }
+
+    try {
+      const schema = await adapter.discoverSchema();
+      if (!activeConn) {
+        await adapter.disconnect();
+      }
+      return res.status(200).json({ schema });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Failed to discover schema' });
+    }
+  }
+
+  /**
+   * Aggregates usage audit logs to generate dashboard analytics.
+   */
+  static async getAnalytics(req: AuthenticatedRequest, res: Response) {
+    const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
     try {
-      const result = await pool.query(
-        'DELETE FROM query_history WHERE id = $1 AND user_id = $2',
-        [id, userId]
+      // 1. Total queries, success counts, invalid counts, failed counts
+      const countsRes = await pool.query(
+        `SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN status = 'success' THEN 1 END) as success,
+            COUNT(CASE WHEN status = 'invalid' THEN 1 END) as invalid,
+            COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+            AVG(CASE WHEN status = 'success' THEN execution_time_ms END) as avg_latency
+         FROM query_audit_logs 
+         WHERE user_id = $1`,
+        [userId]
       );
-      if (result.rowCount === 0) {
-        return res.status(404).json({ error: 'History item not found' });
-      }
-      return res.status(200).json({ message: 'History item deleted successfully' });
-    } catch (error: any) {
-      console.error('Error deleting history item:', error);
-      return res.status(500).json({ error: 'Failed to delete history item' });
+
+      // 2. Chart type distribution
+      const chartsRes = await pool.query(
+        `SELECT chart_type, COUNT(*) as count 
+         FROM query_audit_logs 
+         WHERE user_id = $1 AND status = 'success' 
+         GROUP BY chart_type`,
+        [userId]
+      );
+
+      // 3. Retrieve audit logs list
+      const logsRes = await pool.query(
+        `SELECT id, prompt, generated_sql, status, execution_time_ms, chart_type, confidence, created_at 
+         FROM query_audit_logs 
+         WHERE user_id = $1 
+         ORDER BY created_at DESC 
+         LIMIT 30`,
+        [userId]
+      );
+
+      return res.status(200).json({
+        summary: {
+          totalQueries: Number(countsRes.rows[0].total || 0),
+          successCount: Number(countsRes.rows[0].success || 0),
+          invalidCount: Number(countsRes.rows[0].invalid || 0),
+          failedCount: Number(countsRes.rows[0].failed || 0),
+          avgLatencyMs: Math.round(Number(countsRes.rows[0].avg_latency || 0))
+        },
+        chartDistribution: chartsRes.rows,
+        logs: logsRes.rows
+      });
+
+    } catch (error) {
+      console.error('Analytics retrieve error:', error);
+      return res.status(500).json({ error: 'Failed to fetch analytics metrics' });
     }
   }
 
   /**
-   * Exposes database schema metadata to the frontend.
+   * Helper logger mapping audit writes to database.
    */
-  static async getSchema(req: AuthenticatedRequest, res: Response) {
+  private static async logAudit(
+    userId: number,
+    connectionId: number | null,
+    prompt: string,
+    sql: string | null,
+    status: 'success' | 'failed' | 'invalid',
+    latencyMs: number,
+    chartType: string,
+    explanation: string | null = null,
+    confidence: number = 0.0,
+    errorMsg: string | null = null
+  ) {
     try {
-      const schema = await DbSchemaService.getWhitelistedSchema();
-      return res.status(200).json({ schema });
+      // Save history log (legacy compatibility)
+      await pool.query(
+        `INSERT INTO query_history (user_id, prompt, generated_sql, status, error_message, chart_type) 
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [userId, prompt, sql, status, errorMsg, chartType]
+      );
+
+      // Save complete audit log
+      await pool.query(
+        `INSERT INTO query_audit_logs 
+          (user_id, connection_id, prompt, generated_sql, status, execution_time_ms, chart_type, explanation, confidence, error_message) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [userId, connectionId, prompt, sql, status, latencyMs, chartType, explanation, confidence, errorMsg]
+      );
     } catch (error) {
-      return res.status(500).json({ error: 'Failed to fetch schema' });
+      console.error('Audit logging failed:', error);
     }
   }
 
@@ -204,8 +318,6 @@ export class QueryController {
   private static recommendChart(columns: any[], rows: any[]): 'bar' | 'line' | 'pie' | 'table' {
     if (!rows || rows.length === 0) return 'table';
 
-    // Identify types of columns
-    // We check the first row values to guess data types
     const sample = rows[0];
     const numericKeys: string[] = [];
     const temporalKeys: string[] = [];
@@ -213,7 +325,6 @@ export class QueryController {
 
     for (const [key, val] of Object.entries(sample)) {
       if (typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '')) {
-        // Exclude ID fields from numeric analytics keys
         if (key.toLowerCase() !== 'id' && !key.toLowerCase().endsWith('_id')) {
           numericKeys.push(key);
         }
@@ -224,41 +335,22 @@ export class QueryController {
       }
     }
 
-    // Rule 1: Chronological timeline (Time-series line chart)
-    if (temporalKeys.length > 0 && numericKeys.length > 0) {
-      return 'line';
-    }
+    if (temporalKeys.length > 0 && numericKeys.length > 0) return 'line';
 
-    // Rule 2: Has categories/labels and numeric metrics
     if (categoricalKeys.length > 0 && numericKeys.length > 0) {
       const uniqueCategories = new Set(rows.map(r => r[categoricalKeys[0]])).size;
-      
-      // If categories represent a small proportion of partitions (e.g. <= 6 categories), use a Pie Chart
-      if (uniqueCategories > 1 && uniqueCategories <= 6) {
-        return 'pie';
-      }
-      
-      // Otherwise, default to Bar Chart
+      if (uniqueCategories > 1 && uniqueCategories <= 6) return 'pie';
       return 'bar';
     }
 
-    // Rule 3: Multiple numeric dimensions or large distributions (Bar chart fallback)
-    if (numericKeys.length > 1) {
-      return 'bar';
-    }
+    if (numericKeys.length > 1) return 'bar';
 
-    // Default: Raw table representation
     return 'table';
   }
 
-  /**
-   * Safe date validator string check.
-   */
   private static isValidDate(val: string): boolean {
-    // Check if the string matches common date formats
     const dateRegex = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/;
     if (!dateRegex.test(val)) return false;
-    
     const time = Date.parse(val);
     return !isNaN(time);
   }
