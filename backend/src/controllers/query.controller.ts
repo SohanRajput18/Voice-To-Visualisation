@@ -253,16 +253,40 @@ export class QueryController {
     }
 
     if (guestSessionId) {
+      const logs = guestHistories.get(guestSessionId) || [];
+      
+      const successLogs = logs.filter(log => log.status === 'success');
+      const successCount = successLogs.length;
+      const invalidCount = logs.filter(log => log.status === 'invalid').length;
+      const failedCount = logs.filter(log => log.status === 'failed').length;
+      const totalQueries = logs.length;
+      
+      const totalLatency = successLogs.reduce((sum, log) => sum + (log.execution_time_ms || 0), 0);
+      const avgLatencyMs = successCount > 0 ? Math.round(totalLatency / successCount) : 0;
+
+      // Group logs by chart_type and count them (for successful queries only)
+      const chartMap = new Map<string, number>();
+      for (const log of successLogs) {
+        if (log.chart_type) {
+          chartMap.set(log.chart_type, (chartMap.get(log.chart_type) || 0) + 1);
+        }
+      }
+      
+      const chartDistribution = Array.from(chartMap.entries()).map(([type, count]) => ({
+        chart_type: type,
+        count: count
+      }));
+
       return res.status(200).json({
         summary: {
-          totalQueries: 0,
-          successCount: 0,
-          invalidCount: 0,
-          failedCount: 0,
-          avgLatencyMs: 0
+          totalQueries,
+          successCount,
+          invalidCount,
+          failedCount,
+          avgLatencyMs
         },
-        chartDistribution: [],
-        logs: []
+        chartDistribution,
+        logs
       });
     }
 
@@ -347,7 +371,8 @@ export class QueryController {
           chart_type: chartType,
           created_at: new Date().toISOString(),
           explanation,
-          confidence
+          confidence,
+          execution_time_ms: latencyMs
         };
         guestHistories.set(guestSessionId, [mockItem, ...history].slice(0, 20));
         return;
