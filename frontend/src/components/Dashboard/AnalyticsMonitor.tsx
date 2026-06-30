@@ -196,9 +196,9 @@ export const AnalyticsMonitor: React.FC = () => {
       </div>
 
       {/* Middle row: Visual Chart Breakdowns */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      <div className="analytics-charts-container">
         {/* Chart 1: Status Breakdown */}
-        <div className="glass-panel" style={{ padding: '1.5rem', minHeight: '280px', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass-panel analytics-chart-item" style={{ padding: '1.5rem', minHeight: '280px', display: 'flex', flexDirection: 'column' }}>
           <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Layers size={16} style={{ color: 'var(--accent-cyan)' }} /> Query Safety & Status Breakdown
           </h3>
@@ -232,7 +232,7 @@ export const AnalyticsMonitor: React.FC = () => {
         </div>
 
         {/* Chart 2: Recommended Chart Distribution */}
-        <div className="glass-panel" style={{ padding: '1.5rem', minHeight: '280px', display: 'flex', flexDirection: 'column' }}>
+        <div className="glass-panel analytics-chart-item" style={{ padding: '1.5rem', minHeight: '280px', display: 'flex', flexDirection: 'column' }}>
           <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Terminal size={16} style={{ color: 'var(--accent-violet)' }} /> Visualization Recommendations
           </h3>

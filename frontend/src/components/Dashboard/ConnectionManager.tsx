@@ -176,7 +176,7 @@ export const ConnectionManager: React.FC<ConnectionManagerProps> = ({
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', width: '100%' }}>
+    <div className="connection-manager-container">
       {/* Save Profile Section */}
       <section className="glass-panel" style={{ padding: '1.75rem' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -229,7 +229,7 @@ export const ConnectionManager: React.FC<ConnectionManagerProps> = ({
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '1rem' }}>
+              <div className="connection-form-row-host-port">
                 <div className="input-group">
                   <label className="input-label">Host Address</label>
                   <input 
@@ -254,7 +254,7 @@ export const ConnectionManager: React.FC<ConnectionManagerProps> = ({
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="connection-form-row-auth">
                 <div className="input-group">
                   <label className="input-label">Database Username</label>
                   <input 
@@ -341,7 +341,7 @@ export const ConnectionManager: React.FC<ConnectionManagerProps> = ({
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1.5rem' }}>
+          <div className="connection-form-buttons">
             <button 
               type="button" 
               className="btn-secondary" 
