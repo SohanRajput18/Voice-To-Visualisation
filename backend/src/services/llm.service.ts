@@ -1,4 +1,7 @@
 import { DiscoveredTable } from './db-adapter';
+import { ILlmProvider } from './llm-providers/llm-provider.interface';
+import { OllamaProvider } from './llm-providers/ollama.provider';
+import { GeminiProvider } from './llm-providers/gemini.provider';
 
 export interface LlmResult {
   sql: string;
@@ -7,18 +10,18 @@ export interface LlmResult {
 }
 
 export class LlmService {
-  private static getApiConfig() {
-    const baseUrl = process.env.LLM_API_URL || 'http://localhost:11434';
-    const model = process.env.LLM_MODEL || 'llama3';
-    return { baseUrl, model };
+  private static getProvider(): ILlmProvider {
+    const providerType = (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
+    if (providerType === 'gemini') {
+      return new GeminiProvider();
+    }
+    return new OllamaProvider();
   }
 
   /**
    * Translates natural language prompt into SQL query, explanation, and confidence score.
    */
   static async translateToSql(userPrompt: string, relevantSchema: DiscoveredTable[]): Promise<LlmResult> {
-    const { baseUrl, model } = this.getApiConfig();
-
     // 1. Sanity check for greetings and unrelated prompts
     if (this.isGreetingOrUnrelated(userPrompt)) {
       throw new Error('TRANSLATION_ERROR:Your request does not appear to be related to database analytics. Please ask a business question related to products, customers, or sales.');
@@ -27,63 +30,14 @@ export class LlmService {
     // 2. Format discovered schema for LLM context
     const formattedSchema = this.formatSchemaForLLM(relevantSchema);
 
-    const systemPrompt = `You are a database analytics AI. Translate the user's question into a valid SQL query.
-You must use only the tables and columns specified in the schema context below.
-
-Schema Context:
-${formattedSchema}
-
-Rules:
-1. Output ONLY a valid JSON object. Do not wrap in markdown \`\`\`json block. Do not include any explanations outside the JSON object.
-2. The JSON object must match this schema:
-   {
-     "sql": "A single line SELECT query using the tables and columns above",
-     "explanation": "A short sentence explaining what database properties are filtered and why",
-     "confidence": 0.95
-   }
-3. Only write read-only SELECT queries. Do not perform write operations.
-4. Ensure aliases are defined when joining tables.
-
-Translate the user question: "${userPrompt}"
-JSON Output:`;
-
     try {
-      console.log(`Connecting to Ollama at: ${baseUrl}/api/generate using model "${model}"`);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
-
-      const response = await fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt: systemPrompt,
-          stream: false,
-          options: {
-            temperature: 0.0,
-            num_predict: 250
-          }
-        }),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Ollama returned status ${response.status}`);
-      }
-
-      const data = (await response.json()) as { response: string };
-      const rawText = data.response.trim();
-      
-      console.log('Ollama raw output:', rawText);
-      return this.parseLlmResponse(rawText);
-
+      const provider = this.getProvider();
+      return await provider.generateSql(userPrompt, formattedSchema);
     } catch (error: any) {
       if (error.message && error.message.startsWith('TRANSLATION_ERROR:')) {
         throw error;
       }
-      console.warn('Ollama offline or parsing failed. Falling back to local pattern-matching heuristic...');
+      console.warn('Selected LLM provider failed or offline. Falling back to local pattern-matching heuristic...');
       return this.generateFallbackLlmResult(userPrompt);
     }
   }

@@ -39,7 +39,23 @@ export class PostgresAdapter extends DbAdapter {
     const connectionString = this.config.connectionString || 
       `postgres://${this.config.user}:${encodeURIComponent(this.config.password)}@${this.config.host}:${this.config.port || 5432}/${this.config.database}`;
     
-    this.pool = new PgPool({ connectionString });
+    let isLocal = false;
+    try {
+      const parsed = new URL(connectionString);
+      const hostname = parsed.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === 'db' || hostname === 'host.docker.internal') {
+        isLocal = true;
+      }
+    } catch (e) {
+      isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1') || connectionString.includes('db:') || connectionString.includes('host.docker.internal');
+    }
+
+    const isProduction = process.env.NODE_ENV === 'production' || !isLocal;
+
+    this.pool = new PgPool({ 
+      connectionString,
+      ssl: isProduction ? { rejectUnauthorized: false } : false
+    });
   }
 
   async disconnect(): Promise<void> {

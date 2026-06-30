@@ -28,8 +28,11 @@ services:
       - NODE_ENV=development
       - DATABASE_URL=postgres://postgres:postgres@db:5432/vtov_db
       - JWT_SECRET=vtov_jwt_secure_secret_key_12345
-      - LLM_API_URL=http://host.docker.internal:11434
-      - LLM_MODEL=llama3
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
     depends_on:
       - db
     networks:

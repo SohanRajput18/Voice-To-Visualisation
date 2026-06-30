@@ -1,13 +1,6 @@
 import { DiscoveredTable } from './db-adapter';
 
 export class RagSchemaService {
-  private static getOllamaConfig() {
-    const baseUrl = process.env.LLM_API_URL || 'http://localhost:11434';
-    // Use standard embedding model or default back to standard LLM model
-    const model = process.env.LLM_EMBEDDING_MODEL || 'nomic-embed-text';
-    return { baseUrl, model };
-  }
-
   /**
    * Returns the most relevant tables for the user query using either semantic embeddings or keyword matching.
    */
@@ -23,7 +16,6 @@ export class RagSchemaService {
 
     try {
       console.log(`Running semantic RAG search for prompt: "${userPrompt}"`);
-      const { baseUrl, model } = this.getOllamaConfig();
 
       // 1. Generate description documents for all tables
       const tableDocs = fullSchema.map(tbl => ({
@@ -32,13 +24,13 @@ export class RagSchemaService {
       }));
 
       // 2. Fetch embedding for user prompt
-      const promptEmbedding = await this.getEmbedding(userPrompt, baseUrl, model);
+      const promptEmbedding = await this.getEmbedding(userPrompt);
 
       // 3. Fetch embeddings for table descriptions and calculate similarities
       const scoredTables = await Promise.all(
         tableDocs.map(async item => {
           try {
-            const tableEmbedding = await this.getEmbedding(item.doc, baseUrl, model);
+            const tableEmbedding = await this.getEmbedding(item.doc);
             const score = this.cosineSimilarity(promptEmbedding, tableEmbedding);
             return { table: item.table, score };
           } catch (err) {
@@ -56,7 +48,7 @@ export class RagSchemaService {
       return scoredTables.slice(0, topK).map(t => t.table);
 
     } catch (error) {
-      console.warn('Ollama semantic RAG failed or model not pulled. Falling back to Keyword similarity matching...');
+      console.warn('Semantic RAG failed. Falling back to Keyword similarity matching...');
       return this.getKeywordMatchedSchema(userPrompt, fullSchema, topK);
     }
   }
@@ -99,27 +91,69 @@ export class RagSchemaService {
   }
 
   /**
-   * Invokes Ollama embeddings endpoint.
+   * Invokes embeddings endpoint based on LLM provider.
    */
-  private static async getEmbedding(text: string, baseUrl: string, model: string): Promise<number[]> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s fast timeout
+  private static async getEmbedding(text: string): Promise<number[]> {
+    const providerType = (process.env.LLM_PROVIDER || 'ollama').toLowerCase();
 
-    const response = await fetch(`${baseUrl}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: text }),
-      signal: controller.signal
-    });
+    if (providerType === 'gemini') {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error('Gemini API key is missing for embeddings');
+      }
+      const model = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
 
-    clearTimeout(timeoutId);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
 
-    if (!response.ok) {
-      throw new Error(`Embedding query failed with status ${response.status}`);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: `models/${model}`,
+          content: {
+            parts: [{ text }]
+          }
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Gemini embedding API returned status ${response.status}`);
+      }
+
+      const data = (await response.json()) as any;
+      const embedding = data.embedding?.values;
+      if (!embedding) {
+        throw new Error('Gemini embedding API returned empty result');
+      }
+      return embedding;
+    } else {
+      const baseUrl = process.env.OLLAMA_BASE_URL || process.env.LLM_API_URL || 'http://localhost:11434';
+      const model = process.env.LLM_EMBEDDING_MODEL || 'nomic-embed-text';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s fast timeout
+
+      const response = await fetch(`${baseUrl}/api/embeddings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, prompt: text }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Ollama embedding query failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as { embedding: number[] };
+      return data.embedding;
     }
-
-    const data = (await response.json()) as { embedding: number[] };
-    return data.embedding;
   }
 
   /**

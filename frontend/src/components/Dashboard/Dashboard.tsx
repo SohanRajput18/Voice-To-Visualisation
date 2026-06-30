@@ -352,7 +352,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Hamburger Menu Toggle */}
-        <button 
+        <button
           className="hamburger-toggle"
           onClick={() => setIsMenuOpen(!isMenuOpen)}
           aria-label="Toggle Navigation Menu"
@@ -613,7 +613,6 @@ export const Dashboard: React.FC = () => {
                 )}
 
                 <div className="sql-preview">
-                  <span className="sql-badge">Generated SQL</span>
                   <pre><code>{sql}</code></pre>
                 </div>
 
