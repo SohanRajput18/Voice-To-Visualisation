@@ -23,7 +23,9 @@ import {
   MoreVertical,
   Trash2,
   Activity,
-  ChevronRight
+  ChevronRight,
+  Menu,
+  X
 } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
@@ -38,6 +40,7 @@ export const Dashboard: React.FC = () => {
 
   // Core State
   const [activeTab, setActiveTab] = useState<'sandbox' | 'connections' | 'analytics'>('sandbox');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [sql, setSql] = useState('');
@@ -100,6 +103,17 @@ export const Dashboard: React.FC = () => {
     const handleOutsideClick = () => setActiveMenuId(null);
     window.addEventListener('click', handleOutsideClick);
     return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  // Close hamburger menu when screen size increases past mobile breakpoint
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 480) {
+        setIsMenuOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const closeConfirmModal = () => {
@@ -336,6 +350,55 @@ export const Dashboard: React.FC = () => {
             <LogOut size={16} /> Logout
           </button>
         </div>
+
+        {/* Hamburger Menu Toggle */}
+        <button 
+          className="hamburger-toggle"
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          aria-label="Toggle Navigation Menu"
+        >
+          {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+
+        {/* Mobile Drawer/Dropdown Navigation Menu */}
+        {isMenuOpen && (
+          <div className="mobile-nav-dropdown">
+            <button
+              className={`mobile-nav-item ${activeTab === 'sandbox' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('sandbox');
+                setIsMenuOpen(false);
+              }}
+            >
+              <Play size={16} /> Sandbox
+            </button>
+            <button
+              className={`mobile-nav-item ${activeTab === 'connections' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('connections');
+                setIsMenuOpen(false);
+              }}
+            >
+              <Database size={16} /> Connections
+            </button>
+            <button
+              className={`mobile-nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab('analytics');
+                setIsMenuOpen(false);
+              }}
+            >
+              <Activity size={16} /> Analytics
+            </button>
+            <hr className="mobile-nav-divider" />
+            <div className="mobile-nav-user">
+              Welcome, <strong>{user?.username}</strong>
+            </div>
+            <button className="btn-primary mobile-logout-btn" onClick={logout}>
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Tab Render Switchboard */}
